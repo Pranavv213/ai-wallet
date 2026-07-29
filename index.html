@@ -125,16 +125,17 @@
   <div class="container">
     <div class="header">
       <h1>AI-Crypto Wallet</h1>
-      <p>Powered by Gemini Web3 Agent & Sepolia Network</p>
+      <p>Made by Pranav . Sepolia Network</p>
     </div>
 
     <div class="chat-box" id="chatBox">
       <div class="msg bot" id="welcomeMsg">
         Welcome to <strong>AI-Crypto Wallet</strong>! Ask me to create accounts, check balances, add funds, or transfer tokens.<br/><br/>
         Try asking:<br/>
-        • "Add funds to account 3"<br/>
-        • "Show balance of account 2"<br/>
-        • "Send 0.001 ETH from account 1 to 0x..."
+        • Create new account<br/>
+        • add funds to account 1<br/>
+        • Show balance of account 1 <br/>
+        • Send 0.001 ETH from account 1 to 0x...
       </div>
     </div>
 
@@ -204,7 +205,7 @@
       loaderDiv.id = "geminiLoaderContainer";
       loaderDiv.className = "gemini-loader";
       loaderDiv.innerHTML = `
-        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">Gemini AI thinking</span>
+        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">thinking...</span>
         <div class="gemini-loader-bar"></div>
       `;
       chatBox.appendChild(loaderDiv);
