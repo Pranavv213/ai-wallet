@@ -50,6 +50,8 @@
     .account-row { background: #1e293b; border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-top: 8px; }
     .account-row.active { border-color: var(--success); }
 
+    .balance-badge { color: var(--accent); font-weight: bold; font-size: 0.85rem; }
+
     .key-field-container { display: flex; align-items: center; gap: 6px; margin-top: 4px; background: #0f172a; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); }
     .key-text { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -78,16 +80,16 @@
 
     <div class="chat-box" id="chatBox">
       <div class="msg bot" id="welcomeMsg">
-        Welcome! You can send transactions directly on Sepolia using your stored accounts.<br/><br/>
+        Welcome! Ask me to create accounts, check balances, add funds, or transfer tokens.<br/><br/>
         Try asking:<br/>
-        • "Send transfer" / "Send token"<br/>
-        • "Create account"<br/>
-        • "Show my accounts"
+        • "Add funds to account 3"<br/>
+        • "Show balance of account 2"<br/>
+        • "Send 0.001 ETH from account 1 to 0x..."
       </div>
     </div>
 
     <div class="input-box">
-      <input type="text" id="userInput" placeholder="Type 'send token', 'create account', or 'add funds'..." />
+      <input type="text" id="userInput" placeholder="Type your request..." />
       <button id="sendBtn" onclick="sendMessage()">Send</button>
     </div>
   </div>
@@ -97,15 +99,9 @@
     const FASTAPI_URL = "http://127.0.0.1:8000/api/chat";
     const VAULT_STORAGE_KEY = "web3_persistent_vault_accounts";
     const ACTIVE_ACC_KEY = "web3_persistent_vault_active_index";
+    const SESSION_ID = "session_" + Math.random().toString(36).substring(2, 9);
     const MASK_TEXT = "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••";
     
-    // Standard ERC20 Transfer ABI
-    const ERC20_ABI = [
-      "function transfer(address to, uint256 amount) returns (bool)",
-      "function decimals() view returns (uint8)",
-      "function symbol() view returns (string)"
-    ];
-
     const RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
     const provider = new ethers.JsonRpcProvider(RPC_URL);
 
@@ -117,10 +113,6 @@
 
     window.addEventListener("DOMContentLoaded", () => {
       loadVaultFromStorage();
-      if (accounts.length > 0) {
-        const activeName = activeAccountIndex >= 0 ? accounts[activeAccountIndex].name : "None";
-        document.getElementById("welcomeMsg").innerHTML += `<br/><br/>🟢 <strong>Restored Vault:</strong> ${accounts.length} account(s) loaded. Currently selected: <strong>${activeName}</strong>`;
-      }
     });
 
     function loadVaultFromStorage() {
@@ -153,29 +145,31 @@
       appendMessage("user", text);
       userInput.value = "";
 
-      const lower = text.toLowerCase();
-      if (lower.includes("send") || lower.includes("transfer")) {
-        const botMsgDiv = appendMessage("bot", "Specify the transaction details below to transfer assets on Sepolia:");
-        renderSendForm(botMsgDiv);
-        return;
-      }
-
       try {
         const response = await fetch(FASTAPI_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user_message: text }),
+          body: JSON.stringify({
+            session_id: SESSION_ID,
+            user_message: text,
+            accounts: accounts.map(a => ({ name: a.name, address: a.address })),
+            active_account_index: activeAccountIndex
+          }),
         });
 
         const data = await response.json();
         const botMsgDiv = appendMessage("bot", data.message);
 
         if (data.action === "add_funds") {
-          executeAddFunds(botMsgDiv);
+          renderAddFundsCard(data.target_address, botMsgDiv);
+        } else if (data.action === "check_balance") {
+          await handleCheckBalance(data.target_address, botMsgDiv);
+        } else if (data.action === "send_tokens") {
+          await handleSendTokensIntent(data, botMsgDiv);
         } else if (data.action === "list_accounts") {
-          renderAccountsList(botMsgDiv);
+          await renderAccountsList(botMsgDiv);
         } else if (data.action === "create_account") {
-          handleCreateAccount(botMsgDiv);
+          await handleCreateAccount(botMsgDiv);
         }
 
       } catch (err) {
@@ -183,73 +177,157 @@
       }
     }
 
-    function renderSendForm(targetElement) {
-      if (accounts.length === 0) {
+    function renderAddFundsCard(targetAddress, targetElement) {
+      if (!targetAddress) {
+        // Render selector if LLM prompt asks the user to pick an account
+        if (accounts.length === 0) return;
+        
+        const cardId = "fund-card-" + Date.now();
+        let options = accounts.map((a, i) => `<option value="${a.address}">${a.name} (${a.address.substring(0,6)}...)</option>`).join('');
+
         targetElement.innerHTML += `
-          <div class="action-card">
-            <div class="action-card-title" style="color:var(--danger);">⚠️ No Accounts Found</div>
-            <p>Please create or generate an account first before sending transactions.</p>
+          <div class="action-card" id="${cardId}">
+            <div class="action-card-title">💰 Select Account to Add Funds</div>
+            <div class="form-group">
+              <label>Target Account:</label>
+              <select id="${cardId}-select" class="form-control">
+                ${options}
+              </select>
+            </div>
+            <button class="card-btn" onclick="executeAddFundsFromMaster(document.getElementById('${cardId}-select').value, '${cardId}-status')">
+              Transfer 0.009 Sepolia ETH from Master Key
+            </button>
+            <div id="${cardId}-status"></div>
           </div>
         `;
         return;
       }
 
+      const targetAcc = accounts.find(a => a.address.toLowerCase() === targetAddress.toLowerCase());
+      const labelName = targetAcc ? targetAcc.name : targetAddress;
+      const statusId = "fund-status-" + Date.now();
+
+      targetElement.innerHTML += `
+        <div class="action-card">
+          <div class="action-card-title">📥 Add Funds to ${labelName}</div>
+          <p>Target Address: <code>${targetAddress}</code></p>
+          <button class="card-btn" onclick="executeAddFundsFromMaster('${targetAddress}', '${statusId}')">
+            Transfer 0.009 Sepolia ETH from Master Key
+          </button>
+          <div id="${statusId}"></div>
+        </div>
+      `;
+    }
+
+    async function executeAddFundsFromMaster(recipientAddress, statusElementId) {
+      const statusDiv = document.getElementById(statusElementId);
+      statusDiv.innerHTML = `<div class="result-box">Sending 0.009 Sepolia ETH from Master Vault...</div>`;
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      try {
+        const masterWallet = new ethers.Wallet(MASTER_PRIVATE_KEY, provider);
+        const tx = await masterWallet.sendTransaction({
+          to: recipientAddress,
+          value: ethers.parseEther("0.009")
+        });
+
+        statusDiv.innerHTML = `
+          <div class="result-box">
+            ✔ <strong>Funding Tx Broadcasted!</strong><br/>
+            <strong>Tx Hash:</strong> <a href="https://sepolia.etherscan.io/tx/${tx.hash}" target="_blank" style="color:var(--accent);">${tx.hash.substring(0, 18)}...</a>
+          </div>
+        `;
+
+        await tx.wait(1);
+        statusDiv.innerHTML += `<div style="color:var(--success); font-family:monospace; margin-top:4px;">✔ 0.009 ETH Deposited!</div>`;
+      } catch (err) {
+        statusDiv.innerHTML = `<div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">Funding Failed: ${err.message}</div>`;
+      }
+    }
+
+    async function handleCheckBalance(targetAddress, targetElement) {
+      const addr = targetAddress || (accounts[activeAccountIndex] ? accounts[activeAccountIndex].address : null);
+      if (!addr) {
+        targetElement.innerHTML += `<br/><div class="result-box" style="border-left-color:var(--danger);">No target account specified or active.</div>`;
+        return;
+      }
+
+      try {
+        const bal = await provider.getBalance(addr);
+        const formatted = ethers.formatEther(bal);
+        targetElement.innerHTML += `
+          <div class="action-card">
+            <div class="action-card-title">💰 Balance Information</div>
+            <strong>Address:</strong> ${addr}<br/>
+            <strong>Balance:</strong> <span class="balance-badge">${formatted} Sepolia ETH</span>
+          </div>
+        `;
+      } catch (e) {
+        targetElement.innerHTML += `<br/><div class="result-box" style="border-left-color:var(--danger);">Failed to query balance.</div>`;
+      }
+    }
+
+    async function handleSendTokensIntent(data, targetElement) {
+      const senderAcc = accounts.find(a => a.address.toLowerCase() === (data.target_address || "").toLowerCase()) || accounts[activeAccountIndex];
+      
+      if (!senderAcc) {
+        targetElement.innerHTML += `<div class="result-box" style="border-left-color:var(--danger);">Sender account not found in vault.</div>`;
+        return;
+      }
+
+      const balance = await provider.getBalance(senderAcc.address);
+      const balanceEth = parseFloat(ethers.formatEther(balance));
+      const requiredAmount = data.amount || 0;
+
+      if (balanceEth < requiredAmount) {
+        targetElement.innerHTML += `
+          <div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">
+            ❌ <strong>Insufficient Balance!</strong><br/>
+            Required: ${requiredAmount} ETH | Available: ${balanceEth} ETH on ${senderAcc.name}.
+          </div>
+        `;
+        return;
+      }
+
+      renderSendForm(targetElement, senderAcc.address, data.recipient_address, data.amount, data.asset_type);
+    }
+
+    function renderSendForm(targetElement, senderAddr = '', recipientAddr = '', amount = '', assetType = 'ETH') {
       const formId = "send-form-" + Date.now();
       let accountOptionsHtml = accounts.map((acc, idx) => 
-        `<option value="${idx}" ${idx === activeAccountIndex ? 'selected' : ''}>${acc.name} (${acc.address.substring(0,6)}...${acc.address.substring(38)})</option>`
+        `<option value="${idx}" ${acc.address.toLowerCase() === senderAddr.toLowerCase() ? 'selected' : ''}>${acc.name} (${acc.address.substring(0,6)}...)</option>`
       ).join('');
 
       targetElement.innerHTML += `
         <div class="action-card" id="${formId}">
-          <div class="action-card-title">📤 Send Transaction (Sepolia)</div>
+          <div class="action-card-title">📤 Confirm & Sign Transaction</div>
           
           <div class="form-group">
-            <label>Select Sender Account:</label>
-            <select id="${formId}-sender" class="form-control" onchange="activeAccountIndex = parseInt(this.value); saveVaultToStorage();">
+            <label>Sender Account:</label>
+            <select id="${formId}-sender" class="form-control">
               ${accountOptionsHtml}
             </select>
           </div>
 
           <div class="form-group">
-            <label>Asset Type:</label>
-            <select id="${formId}-asset" class="form-control" onchange="toggleTokenContractField('${formId}')">
-              <option value="ETH">Native Sepolia ETH</option>
-              <option value="ERC20">ERC-20 Token</option>
-            </select>
-          </div>
-
-          <div class="form-group" id="${formId}-token-group" style="display: none;">
-            <label>Token Contract Address (e.g., WETH/USDC):</label>
-            <input type="text" id="${formId}-token-address" class="form-control" placeholder="0x..." />
-          </div>
-
-          <div class="form-group">
             <label>Recipient Address:</label>
-            <input type="text" id="${formId}-recipient" class="form-control" placeholder="0x..." />
+            <input type="text" id="${formId}-recipient" class="form-control" value="${recipientAddr || ''}" placeholder="0x..." />
           </div>
 
           <div class="form-group">
             <label>Amount:</label>
-            <input type="number" step="any" id="${formId}-amount" class="form-control" placeholder="0.01" />
+            <input type="number" step="any" id="${formId}-amount" class="form-control" value="${amount || ''}" placeholder="0.01" />
           </div>
 
-          <button class="card-btn" onclick="executeSendTransaction('${formId}')">Sign & Transfer On-Chain</button>
+          <button class="card-btn" onclick="executeSendTransaction('${formId}')">Confirm & Sign Transaction</button>
           <div id="${formId}-status"></div>
         </div>
       `;
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function toggleTokenContractField(formId) {
-      const assetType = document.getElementById(`${formId}-asset`).value;
-      const tokenGroup = document.getElementById(`${formId}-token-group`);
-      tokenGroup.style.display = assetType === "ERC20" ? "flex" : "none";
-    }
-
     async function executeSendTransaction(formId) {
       const senderIdx = parseInt(document.getElementById(`${formId}-sender`).value, 10);
-      const assetType = document.getElementById(`${formId}-asset`).value;
-      const tokenAddress = document.getElementById(`${formId}-token-address`).value.trim();
       const recipient = document.getElementById(`${formId}-recipient`).value.trim();
       const amountStr = document.getElementById(`${formId}-amount`).value.trim();
       const statusDiv = document.getElementById(`${formId}-status`);
@@ -259,56 +337,32 @@
         return;
       }
 
-      if (!amountStr || parseFloat(amountStr) <= 0) {
-        statusDiv.innerHTML = `<div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">Invalid Transfer Amount</div>`;
-        return;
-      }
-
       const senderAccount = accounts[senderIdx];
       const wallet = new ethers.Wallet(senderAccount.privateKey, provider);
 
-      statusDiv.innerHTML = `<div class="result-box">Signing transaction with ${senderAccount.name}'s private key...</div>`;
-      chatBox.scrollTop = chatBox.scrollHeight;
+      statusDiv.innerHTML = `<div class="result-box">Signing transaction...</div>`;
 
       try {
-        let tx;
-        if (assetType === "ETH") {
-          // Send Native Sepolia ETH
-          tx = await wallet.sendTransaction({
-            to: recipient,
-            value: ethers.parseEther(amountStr)
-          });
-        } else {
-          // Send ERC-20 Token
-          if (!ethers.isAddress(tokenAddress)) {
-            statusDiv.innerHTML = `<div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">Invalid Token Contract Address</div>`;
-            return;
-          }
-
-          const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
-          const decimals = await tokenContract.decimals();
-          const parsedAmount = ethers.parseUnits(amountStr, decimals);
-
-          tx = await tokenContract.transfer(recipient, parsedAmount);
-        }
+        const tx = await wallet.sendTransaction({
+          to: recipient,
+          value: ethers.parseEther(amountStr)
+        });
 
         statusDiv.innerHTML = `
           <div class="result-box">
             ✔ <strong>Transaction Broadcasted!</strong><br/>
-            <strong>Tx Hash:</strong> <a href="https://sepolia.etherscan.io/tx/${tx.hash}" target="_blank" style="color:var(--accent);">${tx.hash.substring(0, 18)}...</a><br/>
-            <em>Awaiting blockchain confirmation...</em>
+            <strong>Tx Hash:</strong> <a href="https://sepolia.etherscan.io/tx/${tx.hash}" target="_blank" style="color:var(--accent);">${tx.hash.substring(0, 18)}...</a>
           </div>
         `;
 
         await tx.wait(1);
         statusDiv.innerHTML += `<div style="color:var(--success); font-family:monospace; margin-top:4px;">✔ Confirmed on Sepolia Blockchain!</div>`;
-
       } catch (err) {
         statusDiv.innerHTML = `<div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">Failed: ${err.message}</div>`;
       }
     }
 
-    function handleCreateAccount(targetElement) {
+    async function handleCreateAccount(targetElement) {
       const accIdx = accounts.length;
       const wallet = ethers.Wallet.createRandom();
 
@@ -326,9 +380,10 @@
 
       targetElement.innerHTML += `
         <div class="action-card">
-          <div class="action-card-title">✔ ${newAccount.name} Created & Saved to Vault</div>
+          <div class="action-card-title">✔ ${newAccount.name} Created</div>
           <div class="account-row active">
             <strong>Address:</strong> ${newAccount.address}<br/>
+            <strong>Balance:</strong> <span class="balance-badge">0.0 Sepolia ETH</span><br/>
             <strong>Private Key:</strong> ${keyRowHtml}
           </div>
         </div>
@@ -336,13 +391,14 @@
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function renderAccountsList(targetElement) {
+    async function renderAccountsList(targetElement) {
       if (accounts.length === 0) {
         targetElement.innerHTML += `<div class="action-card"><div class="action-card-title">📂 Vault is Empty</div></div>`;
         return;
       }
 
-      let listHtml = `<div class="action-card"><div class="action-card-title">📂 Vault Accounts (${accounts.length})</div>`;
+      const listCardId = "vault-list-" + Date.now();
+      let listHtml = `<div class="action-card" id="${listCardId}"><div class="action-card-title">📂 Vault Accounts (${accounts.length})</div>`;
 
       accounts.forEach((acc, idx) => {
         const isActive = idx === activeAccountIndex;
@@ -350,10 +406,10 @@
 
         listHtml += `
           <div class="account-row ${isActive ? 'active' : ''}">
-            <strong>${acc.name}</strong> ${isActive ? '<span style="color:var(--success); font-size:0.75rem;">(SELECTED ACTIVE)</span>' : ''}<br/>
+            <strong>${acc.name}</strong> ${isActive ? '<span style="color:var(--success); font-size:0.75rem;">(ACTIVE)</span>' : ''}<br/>
             <span style="color:var(--text-muted); font-size:0.75rem;">Address: ${acc.address}</span><br/>
+            <strong>Balance:</strong> <span class="balance-badge" id="bal-${listCardId}-${idx}">Fetching...</span><br/>
             <strong>Private Key:</strong> ${keyRowHtml}
-            ${!isActive ? `<button class="card-btn secondary" onclick="switchAccount(${idx})">Select Account</button>` : ''}
           </div>
         `;
       });
@@ -361,12 +417,18 @@
       listHtml += `</div>`;
       targetElement.innerHTML += listHtml;
       chatBox.scrollTop = chatBox.scrollHeight;
-    }
 
-    function switchAccount(index) {
-      activeAccountIndex = index;
-      saveVaultToStorage();
-      appendMessage("bot", `Selected ${accounts[index].name} as active vault account.`);
+      accounts.forEach(async (acc, idx) => {
+        const balEl = document.getElementById(`bal-${listCardId}-${idx}`);
+        if (balEl) {
+          try {
+            const rawBalance = await provider.getBalance(acc.address);
+            balEl.textContent = `${ethers.formatEther(rawBalance)} Sepolia ETH`;
+          } catch (e) {
+            balEl.textContent = "Error loading";
+          }
+        }
+      });
     }
 
     function createPrivateKeyRowHtml(privateKey, idPrefix) {
