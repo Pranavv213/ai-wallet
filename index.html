@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemini Web3 Persistent Vault & Transfer Agent</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.1/ethers.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --bot-msg: #334155;
+      --user-msg: #0284c7;
+      --success: #22c55e;
+      --danger: #ef4444;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+    
+    .container {
+      width: 100%; max-width: 720px; background-color: var(--card-bg);
+      border: 1px solid var(--border); border-radius: 12px; padding: 20px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; height: 90vh;
+    }
+
+    .header { text-align: center; padding-bottom: 14px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .header h1 { font-size: 1.3rem; color: var(--accent); }
+    .header p { font-size: 0.85rem; color: var(--text-muted); }
+
+    .chat-box { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 6px; margin-bottom: 16px; }
+    
+    .msg { max-width: 85%; padding: 12px 16px; border-radius: 8px; font-size: 0.92rem; line-height: 1.4; }
+    .msg.user { align-self: flex-end; background-color: var(--user-msg); color: white; border-bottom-right-radius: 2px; }
+    .msg.bot { align-self: flex-start; background-color: var(--bot-msg); color: var(--text); border-bottom-left-radius: 2px; }
+
+    .action-card { margin-top: 10px; padding: 14px; background-color: #0f172a; border: 1px solid var(--accent); border-radius: 8px; font-size: 0.85rem; word-break: break-all; }
+    .action-card-title { color: var(--accent); font-weight: bold; margin-bottom: 8px; font-size: 0.9rem; }
+
+    .form-group { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+    .form-group label { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; }
+    .form-control { width: 100%; padding: 8px 10px; background: #1e293b; border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.85rem; outline: none; }
+    .form-control:focus { border-color: var(--accent); }
+
+    .account-row { background: #1e293b; border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-top: 8px; }
+    .account-row.active { border-color: var(--success); }
+
+    .key-field-container { display: flex; align-items: center; gap: 6px; margin-top: 4px; background: #0f172a; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); }
+    .key-text { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .icon-btn { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; }
+    .icon-btn:hover { background: var(--border); }
+
+    .card-btn { width: 100%; padding: 9px; background: var(--accent); border: none; border-radius: 6px; font-weight: bold; cursor: pointer; color: #000; margin-top: 10px; }
+    .card-btn:hover { background: var(--accent-hover); }
+    .card-btn.secondary { background: transparent; border: 1px solid var(--border); color: #fff; margin-top: 6px; }
+
+    .result-box { margin-top: 10px; padding: 8px 10px; background: #1e293b; border-radius: 6px; border-left: 3px solid var(--success); font-family: monospace; font-size: 0.8rem; }
+
+    .input-box { display: flex; gap: 10px; }
+    .input-box input { flex: 1; padding: 12px; background-color: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.95rem; outline: none; }
+    .input-box input:focus { border-color: var(--accent); }
+    .input-box button { padding: 12px 20px; background-color: var(--accent); border: none; border-radius: 8px; font-weight: 600; color: #000; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div class="header">
+      <h1>Gemini Web3 Transfer & Vault Agent</h1>
+      <p>Send Sepolia ETH or ERC-20 Tokens using Vault Accounts</p>
+    </div>
+
+    <div class="chat-box" id="chatBox">
+      <div class="msg bot" id="welcomeMsg">
+        Welcome! You can send transactions directly on Sepolia using your stored accounts.<br/><br/>
+        Try asking:<br/>
+        • "Send transfer" / "Send token"<br/>
+        • "Create account"<br/>
+        • "Show my accounts"
+      </div>
+    </div>
+
+    <div class="input-box">
+      <input type="text" id="userInput" placeholder="Type 'send token', 'create account', or 'add funds'..." />
+      <button id="sendBtn" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+
+  <script>
+    const MASTER_PRIVATE_KEY = "0x8995f4b872b7ae383f39d9762d69cac51aa6c2fb1cca761b6228e45d9fff0d4f";
+    const FASTAPI_URL = "http://127.0.0.1:8000/api/chat";
+    const VAULT_STORAGE_KEY = "web3_persistent_vault_accounts";
+    const ACTIVE_ACC_KEY = "web3_persistent_vault_active_index";
+    const MASK_TEXT = "••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••";
+    
+    // Standard ERC20 Transfer ABI
+    const ERC20_ABI = [
+      "function transfer(address to, uint256 amount) returns (bool)",
+      "function decimals() view returns (uint8)",
+      "function symbol() view returns (string)"
+    ];
+
+    const RPC_URL = "https://ethereum-sepolia-rpc.publicnode.com";
+    const provider = new ethers.JsonRpcProvider(RPC_URL);
+
+    const chatBox = document.getElementById("chatBox");
+    const userInput = document.getElementById("userInput");
+
+    let accounts = [];
+    let activeAccountIndex = -1;
+
+    window.addEventListener("DOMContentLoaded", () => {
+      loadVaultFromStorage();
+      if (accounts.length > 0) {
+        const activeName = activeAccountIndex >= 0 ? accounts[activeAccountIndex].name : "None";
+        document.getElementById("welcomeMsg").innerHTML += `<br/><br/>🟢 <strong>Restored Vault:</strong> ${accounts.length} account(s) loaded. Currently selected: <strong>${activeName}</strong>`;
+      }
+    });
+
+    function loadVaultFromStorage() {
+      const stored = localStorage.getItem(VAULT_STORAGE_KEY);
+      if (stored) {
+        try {
+          accounts = JSON.parse(stored);
+          const storedActive = localStorage.getItem(ACTIVE_ACC_KEY);
+          activeAccountIndex = storedActive !== null ? parseInt(storedActive, 10) : (accounts.length ? 0 : -1);
+        } catch (e) {
+          accounts = [];
+          activeAccountIndex = -1;
+        }
+      }
+    }
+
+    function saveVaultToStorage() {
+      localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(accounts));
+      localStorage.setItem(ACTIVE_ACC_KEY, activeAccountIndex.toString());
+    }
+
+    userInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") sendMessage();
+    });
+
+    async function sendMessage() {
+      const text = userInput.value.trim();
+      if (!text) return;
+
+      appendMessage("user", text);
+      userInput.value = "";
+
+      const lower = text.toLowerCase();
+      if (lower.includes("send") || lower.includes("transfer")) {
+        const botMsgDiv = appendMessage("bot", "Specify the transaction details below to transfer assets on Sepolia:");
+        renderSendForm(botMsgDiv);
+        return;
+      }
+
+      try {
+        const response = await fetch(FASTAPI_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_message: text }),
+        });
+
+        const data = await response.json();
+        const botMsgDiv = appendMessage("bot", data.message);
+
+        if (data.action === "add_funds") {
+          executeAddFunds(botMsgDiv);
+        } else if (data.action === "list_accounts") {
+          renderAccountsList(botMsgDiv);
+        } else if (data.action === "create_account") {
+          handleCreateAccount(botMsgDiv);
+        }
+
+      } catch (err) {
+        appendMessage("bot", "Error connecting to backend server.");
+      }
+    }
+
+    function renderSendForm(targetElement) {
+      if (accounts.length === 0) {
+        targetElement.innerHTML += `
+          <div class="action-card">
+            <div class="action-card-title" style="color:var(--danger);">⚠️ No Accounts Found</div>
+            <p>Please create or generate an account first before sending transactions.</p>
+          </div>
+        `;
+        return;
+      }
+
+      const formId = "send-form-" + Date.now();
+      let accountOptionsHtml = accounts.map((acc, idx) => 
+        `<option value="${idx}" ${idx === activeAccountIndex ? 'selected' : ''}>${acc.name} (${acc.address.substring(0,6)}...${acc.address.substring(38)})</option>`
+      ).join('');
+
+      targetElement.innerHTML += `
+        <div class="action-card" id="${formId}">
+          <div class="action-card-title">📤 Send Transaction (Sepolia)</div>
+          
+          <div class="form-group">
+            <label>Select Sender Account:</label>
+            <select id="${formId}-sender" class="form-control" onchange="activeAccountIndex = parseInt(this.value); saveVaultToStorage();">
+              ${accountOptionsHtml}
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Asset Type:</label>
+            <select id="${formId}-asset" class="form-control" onchange="toggleTokenContractField('${formId}')">
+              <option value="ETH">Native Sepolia ETH</option>
+              <option value="ERC20">ERC-20 Token</option>
+            </select>
+          </div>
+
+          <div class="form-group" id="${formId}-token-group" style="display: none;">
+            <label>Token Contract Address (e.g., WETH/USDC):</label>
+            <input type="text" id="${formId}-token-address" class="form-control" placeholder="0x..." />
+          </div>
+
+          <div class="form-group">
+            <label>Recipient Address:</label>
+            <input type="text" id="${formId}-recipient" class="form-control" placeholder="0x..." />
+          </div>
+
+          <div class="form-group">
+            <label>Amount:</label>
+            <input type="number" step="any" id="${formId}-amount" class="form-control" placeholder="0.01" />
+          </div>
+
+          <button class="card-btn" onclick="executeSendTransaction('${formId}')">Sign & Transfer On-Chain</button>
+          <div id="${formId}-status"></div>
+        </div>
+      `;
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function toggleTokenContractField(formId) {
+      const assetType = document.getElementById(`${formId}-asset`).value;
+      const tokenGroup = document.getElementById(`${formId}-token-group`);
+      tokenGroup.style.display = assetType === "ERC20" ? "flex" : "none";
+    }
+
+    async function executeSendTransaction(formId) {
+      const senderIdx = parseInt(document.getElementById(`${formId}-sender`).value, 10);
+      const assetType = document.getElementById(`${formId}-asset`).value;
+      const tokenAddress = document.getElementById(`${formId}-token-address`).value.trim();
+      const recipient = document.getElementById(`${formId}-recipient`).value.trim();
+      const amountStr = document.getElementById(`${formId}-amount`).value.trim();
+      const statusDiv = document.getElementById(`${formId}-status`);
+
+      if (!ethers.isAddress(recipient)) {
+        statusDiv.innerHTML = `<div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">Invalid Recipient Address</div>`;
+        return;
+      }
+
+      if (!amountStr || parseFloat(amountStr) <= 0) {
+        statusDiv.innerHTML = `<div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">Invalid Transfer Amount</div>`;
+        return;
+      }
+
+      const senderAccount = accounts[senderIdx];
+      const wallet = new ethers.Wallet(senderAccount.privateKey, provider);
+
+      statusDiv.innerHTML = `<div class="result-box">Signing transaction with ${senderAccount.name}'s private key...</div>`;
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      try {
+        let tx;
+        if (assetType === "ETH") {
+          // Send Native Sepolia ETH
+          tx = await wallet.sendTransaction({
+            to: recipient,
+            value: ethers.parseEther(amountStr)
+          });
+        } else {
+          // Send ERC-20 Token
+          if (!ethers.isAddress(tokenAddress)) {
+            statusDiv.innerHTML = `<div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">Invalid Token Contract Address</div>`;
+            return;
+          }
+
+          const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, wallet);
+          const decimals = await tokenContract.decimals();
+          const parsedAmount = ethers.parseUnits(amountStr, decimals);
+
+          tx = await tokenContract.transfer(recipient, parsedAmount);
+        }
+
+        statusDiv.innerHTML = `
+          <div class="result-box">
+            ✔ <strong>Transaction Broadcasted!</strong><br/>
+            <strong>Tx Hash:</strong> <a href="https://sepolia.etherscan.io/tx/${tx.hash}" target="_blank" style="color:var(--accent);">${tx.hash.substring(0, 18)}...</a><br/>
+            <em>Awaiting blockchain confirmation...</em>
+          </div>
+        `;
+
+        await tx.wait(1);
+        statusDiv.innerHTML += `<div style="color:var(--success); font-family:monospace; margin-top:4px;">✔ Confirmed on Sepolia Blockchain!</div>`;
+
+      } catch (err) {
+        statusDiv.innerHTML = `<div class="result-box" style="border-left-color:var(--danger); color:var(--danger);">Failed: ${err.message}</div>`;
+      }
+    }
+
+    function handleCreateAccount(targetElement) {
+      const accIdx = accounts.length;
+      const wallet = ethers.Wallet.createRandom();
+
+      const newAccount = {
+        name: `Account ${accIdx + 1}`,
+        address: wallet.address,
+        privateKey: wallet.privateKey,
+      };
+
+      accounts.push(newAccount);
+      activeAccountIndex = accounts.length - 1;
+      saveVaultToStorage();
+
+      const keyRowHtml = createPrivateKeyRowHtml(newAccount.privateKey, `create-${Date.now()}`);
+
+      targetElement.innerHTML += `
+        <div class="action-card">
+          <div class="action-card-title">✔ ${newAccount.name} Created & Saved to Vault</div>
+          <div class="account-row active">
+            <strong>Address:</strong> ${newAccount.address}<br/>
+            <strong>Private Key:</strong> ${keyRowHtml}
+          </div>
+        </div>
+      `;
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function renderAccountsList(targetElement) {
+      if (accounts.length === 0) {
+        targetElement.innerHTML += `<div class="action-card"><div class="action-card-title">📂 Vault is Empty</div></div>`;
+        return;
+      }
+
+      let listHtml = `<div class="action-card"><div class="action-card-title">📂 Vault Accounts (${accounts.length})</div>`;
+
+      accounts.forEach((acc, idx) => {
+        const isActive = idx === activeAccountIndex;
+        const keyRowHtml = createPrivateKeyRowHtml(acc.privateKey, `list-${idx}-${Date.now()}`);
+
+        listHtml += `
+          <div class="account-row ${isActive ? 'active' : ''}">
+            <strong>${acc.name}</strong> ${isActive ? '<span style="color:var(--success); font-size:0.75rem;">(SELECTED ACTIVE)</span>' : ''}<br/>
+            <span style="color:var(--text-muted); font-size:0.75rem;">Address: ${acc.address}</span><br/>
+            <strong>Private Key:</strong> ${keyRowHtml}
+            ${!isActive ? `<button class="card-btn secondary" onclick="switchAccount(${idx})">Select Account</button>` : ''}
+          </div>
+        `;
+      });
+
+      listHtml += `</div>`;
+      targetElement.innerHTML += listHtml;
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function switchAccount(index) {
+      activeAccountIndex = index;
+      saveVaultToStorage();
+      appendMessage("bot", `Selected ${accounts[index].name} as active vault account.`);
+    }
+
+    function createPrivateKeyRowHtml(privateKey, idPrefix) {
+      const textId = `pk-text-${idPrefix}`;
+      const toggleBtnId = `pk-toggle-${idPrefix}`;
+      const copyBtnId = `pk-copy-${idPrefix}`;
+
+      return `
+        <div class="key-field-container">
+          <span id="${textId}" class="key-text" data-raw="${privateKey}">${MASK_TEXT}</span>
+          <button id="${toggleBtnId}" class="icon-btn" onclick="toggleKeyVisibility('${textId}', '${toggleBtnId}')">Show</button>
+          <button id="${copyBtnId}" class="icon-btn" onclick="copyToClipboard('${privateKey}', '${copyBtnId}')">Copy</button>
+        </div>
+      `;
+    }
+
+    function toggleKeyVisibility(textId, toggleBtnId) {
+      const textEl = document.getElementById(textId);
+      const btnEl = document.getElementById(toggleBtnId);
+      const rawKey = textEl.getAttribute("data-raw");
+
+      if (textEl.textContent === MASK_TEXT) {
+        textEl.textContent = rawKey;
+        btnEl.textContent = "Hide";
+      } else {
+        textEl.textContent = MASK_TEXT;
+        btnEl.textContent = "Show";
+      }
+    }
+
+    function copyToClipboard(text, btnId) {
+      navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById(btnId);
+        const originalText = btn.textContent;
+        btn.textContent = "Copied!";
+        btn.style.color = "var(--success)";
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.style.color = "var(--accent)";
+        }, 1500);
+      });
+    }
+
+    function appendMessage(sender, text) {
+      const msgDiv = document.createElement("div");
+      msgDiv.className = `msg ${sender}`;
+      msgDiv.innerHTML = text;
+      chatBox.appendChild(msgDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+      return msgDiv;
+    }
+  </script>
+</body>
+</html>
