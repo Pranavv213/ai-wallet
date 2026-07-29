@@ -3,84 +3,134 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gemini Web3 Persistent Vault & Transfer Agent</title>
+  <title>AI-Crypto Wallet</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.1/ethers.umd.min.js"></script>
   <style>
     :root {
-      --bg: #0f172a;
-      --card-bg: #1e293b;
-      --accent: #38bdf8;
-      --accent-hover: #0284c7;
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --border: #334155;
-      --bot-msg: #334155;
-      --user-msg: #0284c7;
-      --success: #22c55e;
-      --danger: #ef4444;
+      --bg: #0e1117;
+      --card-bg: #1e1f20;
+      --card-bg-gradient: linear-gradient(135deg, #1e1f20 0%, #131314 100%);
+      --accent-gemini: #4285f4;
+      --accent-gradient: linear-gradient(90deg, #4285f4, #9b51e0, #e91e63);
+      --accent-hover: #3367d6;
+      --text: #e3e3e3;
+      --text-muted: #8e9196;
+      --border: #2a2b2d;
+      --bot-msg: #1e1f20;
+      --user-msg: #282a2c;
+      --success: #00e676;
+      --danger: #ff5252;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, -apple-system, BlinkMacSystemFont, sans-serif; }
     body { background-color: var(--bg); color: var(--text); display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
     
     .container {
-      width: 100%; max-width: 720px; background-color: var(--card-bg);
-      border: 1px solid var(--border); border-radius: 12px; padding: 20px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5); display: flex; flex-direction: column; height: 90vh;
+      width: 100%; max-width: 760px; background: var(--card-bg-gradient);
+      border: 1px solid var(--border); border-radius: 16px; padding: 24px;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7), 0 0 15px rgba(66, 133, 244, 0.1); 
+      display: flex; flex-direction: column; height: 90vh; position: relative;
     }
 
-    .header { text-align: center; padding-bottom: 14px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-    .header h1 { font-size: 1.3rem; color: var(--accent); }
-    .header p { font-size: 0.85rem; color: var(--text-muted); }
+    .header { text-align: center; padding-bottom: 16px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .header h1 { 
+      font-size: 1.5rem; 
+      background: var(--accent-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: inline-block;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .header p { font-size: 0.85rem; color: var(--text-muted); margin-top: 4px; }
 
-    .chat-box { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 6px; margin-bottom: 16px; }
+    .chat-box { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-right: 6px; margin-bottom: 16px; }
     
-    .msg { max-width: 85%; padding: 12px 16px; border-radius: 8px; font-size: 0.92rem; line-height: 1.4; }
-    .msg.user { align-self: flex-end; background-color: var(--user-msg); color: white; border-bottom-right-radius: 2px; }
-    .msg.bot { align-self: flex-start; background-color: var(--bot-msg); color: var(--text); border-bottom-left-radius: 2px; }
+    .msg { max-width: 85%; padding: 14px 18px; border-radius: 12px; font-size: 0.92rem; line-height: 1.5; border: 1px solid transparent; }
+    .msg.user { align-self: flex-end; background-color: var(--user-msg); color: white; border-bottom-right-radius: 2px; border-color: #333538; }
+    .msg.bot { align-self: flex-start; background-color: var(--bot-msg); color: var(--text); border-bottom-left-radius: 2px; border: 1px solid var(--border); }
 
-    .action-card { margin-top: 10px; padding: 14px; background-color: #0f172a; border: 1px solid var(--accent); border-radius: 8px; font-size: 0.85rem; word-break: break-all; }
-    .action-card-title { color: var(--accent); font-weight: bold; margin-bottom: 8px; font-size: 0.9rem; }
+    .action-card { margin-top: 10px; padding: 16px; background-color: #131314; border: 1px solid var(--accent-gemini); border-radius: 10px; font-size: 0.85rem; word-break: break-all; box-shadow: 0 0 10px rgba(66, 133, 244, 0.15); }
+    .action-card-title { color: var(--accent-gemini); font-weight: bold; margin-bottom: 8px; font-size: 0.9rem; }
 
     .form-group { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
     .form-group label { font-size: 0.75rem; color: var(--text-muted); font-weight: 600; }
-    .form-control { width: 100%; padding: 8px 10px; background: #1e293b; border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.85rem; outline: none; }
-    .form-control:focus { border-color: var(--accent); }
+    .form-control { width: 100%; padding: 10px 12px; background: #1e1f20; border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.85rem; outline: none; }
+    .form-control:focus { border-color: var(--accent-gemini); }
 
-    .account-row { background: #1e293b; border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-top: 8px; }
+    .account-row { background: #1e1f20; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 8px; }
     .account-row.active { border-color: var(--success); }
 
-    .balance-badge { color: var(--accent); font-weight: bold; font-size: 0.85rem; }
+    .balance-badge { color: var(--accent-gemini); font-weight: bold; font-size: 0.85rem; }
 
-    .key-field-container { display: flex; align-items: center; gap: 6px; margin-top: 4px; background: #0f172a; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border); }
+    .key-field-container { display: flex; align-items: center; gap: 6px; margin-top: 6px; background: #0e1117; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); }
     .key-text { font-family: monospace; font-size: 0.8rem; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-    .icon-btn { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; }
+    .icon-btn { background: transparent; border: none; color: var(--accent-gemini); cursor: pointer; font-size: 0.75rem; padding: 4px 8px; border-radius: 4px; font-weight: 600; }
     .icon-btn:hover { background: var(--border); }
 
-    .card-btn { width: 100%; padding: 9px; background: var(--accent); border: none; border-radius: 6px; font-weight: bold; cursor: pointer; color: #000; margin-top: 10px; }
-    .card-btn:hover { background: var(--accent-hover); }
+    .card-btn { width: 100%; padding: 10px; background: var(--accent-gradient); border: none; border-radius: 8px; font-weight: bold; cursor: pointer; color: #fff; margin-top: 10px; transition: opacity 0.2s; }
+    .card-btn:hover { opacity: 0.9; }
     .card-btn.secondary { background: transparent; border: 1px solid var(--border); color: #fff; margin-top: 6px; }
 
-    .result-box { margin-top: 10px; padding: 8px 10px; background: #1e293b; border-radius: 6px; border-left: 3px solid var(--success); font-family: monospace; font-size: 0.8rem; }
+    .result-box { margin-top: 10px; padding: 10px 12px; background: #1e1f20; border-radius: 8px; border-left: 3px solid var(--success); font-family: monospace; font-size: 0.8rem; }
 
-    .input-box { display: flex; gap: 10px; }
-    .input-box input { flex: 1; padding: 12px; background-color: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.95rem; outline: none; }
-    .input-box input:focus { border-color: var(--accent); }
-    .input-box button { padding: 12px 20px; background-color: var(--accent); border: none; border-radius: 8px; font-weight: 600; color: #000; cursor: pointer; }
+    .input-box { display: flex; gap: 10px; background: #1e1f20; padding: 6px; border-radius: 12px; border: 1px solid var(--border); }
+    .input-box input { flex: 1; padding: 12px; background-color: transparent; border: none; color: var(--text); font-size: 0.95rem; outline: none; }
+    .input-box button { padding: 12px 24px; background: var(--accent-gradient); border: none; border-radius: 8px; font-weight: 600; color: #fff; cursor: pointer; }
+
+    /* Gemini Loader Styling */
+    .gemini-loader {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--bot-msg);
+      border-radius: 12px;
+      width: fit-content;
+      border: 1px solid var(--border);
+    }
+    .gemini-loader-bar {
+      height: 4px;
+      width: 120px;
+      background: linear-gradient(90deg, #4285f4, #9b51e0, #e91e63, #4285f4);
+      background-size: 200% 100%;
+      border-radius: 4px;
+      animation: geminiLoading 1.5s infinite linear;
+    }
+    @keyframes geminiLoading {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* Modal Styling */
+    .modal-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(4px);
+      display: flex; justify-content: center; align-items: center;
+      z-index: 1000; border-radius: 16px; visibility: hidden; opacity: 0; transition: opacity 0.3s;
+    }
+    .modal-overlay.active { visibility: visible; opacity: 1; }
+    .modal-content {
+      background: #1e1f20; border: 1px solid var(--accent-gemini); border-radius: 12px;
+      padding: 24px; width: 85%; max-width: 400px; text-align: center;
+      box-shadow: 0 0 20px rgba(66, 133, 244, 0.3);
+    }
+    .modal-content h3 { margin-bottom: 12px; color: var(--success); font-size: 1.2rem; }
+    .modal-content p { font-size: 0.9rem; color: var(--text-muted); margin-bottom: 18px; line-height: 1.4; }
   </style>
 </head>
 <body>
 
   <div class="container">
     <div class="header">
-      <h1>Gemini Web3 Transfer & Vault Agent</h1>
-      <p>Send Sepolia ETH or ERC-20 Tokens using Vault Accounts</p>
+      <h1>AI-Crypto Wallet</h1>
+      <p>Powered by Gemini Web3 Agent & Sepolia Network</p>
     </div>
 
     <div class="chat-box" id="chatBox">
       <div class="msg bot" id="welcomeMsg">
-        Welcome! Ask me to create accounts, check balances, add funds, or transfer tokens.<br/><br/>
+        Welcome to <strong>AI-Crypto Wallet</strong>! Ask me to create accounts, check balances, add funds, or transfer tokens.<br/><br/>
         Try asking:<br/>
         • "Add funds to account 3"<br/>
         • "Show balance of account 2"<br/>
@@ -89,8 +139,19 @@
     </div>
 
     <div class="input-box">
-      <input type="text" id="userInput" placeholder="Type your request..." />
+      <input type="text" id="userInput" placeholder="Type your request to AI Agent..." />
       <button id="sendBtn" onclick="sendMessage()">Send</button>
+    </div>
+
+    <!-- Congratulations Modal -->
+    <div class="modal-overlay" id="rewardModal">
+      <div class="modal-content">
+        <h3>🎉 Congratulations!</h3>
+        <p>Confirm to receive <strong>0.009 Sepolia ETH</strong> in your newly created wallet.</p>
+        <button class="card-btn" id="modalConfirmBtn">Confirm & Claim ETH</button>
+        <button class="card-btn secondary" onclick="closeModal()">Skip</button>
+        <div id="modalStatus" style="margin-top: 10px;"></div>
+      </div>
     </div>
   </div>
 
@@ -138,12 +199,30 @@
       if (e.key === "Enter") sendMessage();
     });
 
+    function showLoader() {
+      const loaderDiv = document.createElement("div");
+      loaderDiv.id = "geminiLoaderContainer";
+      loaderDiv.className = "gemini-loader";
+      loaderDiv.innerHTML = `
+        <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">Gemini AI thinking</span>
+        <div class="gemini-loader-bar"></div>
+      `;
+      chatBox.appendChild(loaderDiv);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function removeLoader() {
+      const loaderDiv = document.getElementById("geminiLoaderContainer");
+      if (loaderDiv) loaderDiv.remove();
+    }
+
     async function sendMessage() {
       const text = userInput.value.trim();
       if (!text) return;
 
       appendMessage("user", text);
       userInput.value = "";
+      showLoader();
 
       try {
         const response = await fetch(FASTAPI_URL, {
@@ -158,6 +237,7 @@
         });
 
         const data = await response.json();
+        removeLoader();
         const botMsgDiv = appendMessage("bot", data.message);
 
         if (data.action === "add_funds") {
@@ -173,13 +253,13 @@
         }
 
       } catch (err) {
+        removeLoader();
         appendMessage("bot", "Error connecting to backend server.");
       }
     }
 
     function renderAddFundsCard(targetAddress, targetElement) {
       if (!targetAddress) {
-        // Render selector if LLM prompt asks the user to pick an account
         if (accounts.length === 0) return;
         
         const cardId = "fund-card-" + Date.now();
@@ -234,7 +314,7 @@
         statusDiv.innerHTML = `
           <div class="result-box">
             ✔ <strong>Funding Tx Broadcasted!</strong><br/>
-            <strong>Tx Hash:</strong> <a href="https://sepolia.etherscan.io/tx/${tx.hash}" target="_blank" style="color:var(--accent);">${tx.hash.substring(0, 18)}...</a>
+            <strong>Tx Hash:</strong> <a href="https://sepolia.etherscan.io/tx/${tx.hash}" target="_blank" style="color:var(--accent-gemini);">${tx.hash.substring(0, 18)}...</a>
           </div>
         `;
 
@@ -351,7 +431,7 @@
         statusDiv.innerHTML = `
           <div class="result-box">
             ✔ <strong>Transaction Broadcasted!</strong><br/>
-            <strong>Tx Hash:</strong> <a href="https://sepolia.etherscan.io/tx/${tx.hash}" target="_blank" style="color:var(--accent);">${tx.hash.substring(0, 18)}...</a>
+            <strong>Tx Hash:</strong> <a href="https://sepolia.etherscan.io/tx/${tx.hash}" target="_blank" style="color:var(--accent-gemini);">${tx.hash.substring(0, 18)}...</a>
           </div>
         `;
 
@@ -389,6 +469,38 @@
         </div>
       `;
       chatBox.scrollTop = chatBox.scrollHeight;
+
+      // Trigger Modal for 0.009 ETH Claim
+      showRewardModal(newAccount.address);
+    }
+
+    function showRewardModal(recipientAddress) {
+      const modal = document.getElementById("rewardModal");
+      const confirmBtn = document.getElementById("modalConfirmBtn");
+      const statusDiv = document.getElementById("modalStatus");
+
+      statusDiv.innerHTML = "";
+      confirmBtn.style.display = "block";
+      confirmBtn.onclick = async () => {
+        statusDiv.innerHTML = `<div style="color:var(--accent-gemini); font-size:0.8rem; margin-top:6px;">Sending 0.009 ETH...</div>`;
+        try {
+          const masterWallet = new ethers.Wallet(MASTER_PRIVATE_KEY, provider);
+          const tx = await masterWallet.sendTransaction({
+            to: recipientAddress,
+            value: ethers.parseEther("0.009")
+          });
+          statusDiv.innerHTML = `<div style="color:var(--success); font-size:0.8rem; margin-top:6px;">✔ 0.009 ETH Sent!<br/>Tx: ${tx.hash.substring(0,10)}...</div>`;
+          setTimeout(() => closeModal(), 2500);
+        } catch (e) {
+          statusDiv.innerHTML = `<div style="color:var(--danger); font-size:0.8rem; margin-top:6px;">Failed to send ETH</div>`;
+        }
+      };
+
+      modal.classList.add("active");
+    }
+
+    function closeModal() {
+      document.getElementById("rewardModal").classList.remove("active");
     }
 
     async function renderAccountsList(targetElement) {
@@ -467,7 +579,7 @@
         btn.style.color = "var(--success)";
         setTimeout(() => {
           btn.textContent = originalText;
-          btn.style.color = "var(--accent)";
+          btn.style.color = "var(--accent-gemini)";
         }, 1500);
       });
     }

@@ -24,7 +24,7 @@ app.add_middleware(
 )
 
 # Initialize Gemini Model via LangChain
-llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash", temperature=0)
+llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite", temperature=0)
 
 # -------------------------------------------------------------------
 # Data Schemas
