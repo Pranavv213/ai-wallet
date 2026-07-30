@@ -1,13 +1,14 @@
 import os
 import json
-from typing import List, Dict, Optional, Annotated, Sequence
+from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -25,6 +26,15 @@ app.add_middleware(
 
 # Initialize Gemini Model via LangChain
 llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite", temperature=0)
+
+# -------------------------------------------------------------------
+# Serve Frontend UI
+# -------------------------------------------------------------------
+@app.get("/")
+async def serve_index():
+    if not os.path.exists("index.html"):
+        raise HTTPException(status_code=404, detail="index.html file not found")
+    return FileResponse("index.html")
 
 # -------------------------------------------------------------------
 # Data Schemas
@@ -81,7 +91,9 @@ class AgentState(Dict):
     intent_result: Optional[IntentStructuredOutput]
 
 def process_intent_node(state: AgentState) -> AgentState:
-    accounts_str = json.dumps([acc.dict() for acc in state["accounts"]]) if state["accounts"] else "No accounts created yet."
+    # Safe model conversion for Pydantic V2
+    accounts_dict = [acc.model_dump() if hasattr(acc, 'model_dump') else acc.dict() for acc in state["accounts"]]
+    accounts_str = json.dumps(accounts_dict) if state["accounts"] else "No accounts created yet."
     
     system_instructions = f"""
     You are an intelligent Web3 assistant managing user vault accounts on Ethereum Sepolia.
